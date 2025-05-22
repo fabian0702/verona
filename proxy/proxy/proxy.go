@@ -41,32 +41,36 @@ func (p *Proxy) Start() error {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
 
-	defer listener.Close()
-
 	log.Printf("Proxy listening on %s, forwarding to %s", p.local, p.remote)
 
-	for {
-		select {
-		case <-p.terminate:
-			log.Println("Stopping proxy server")
-			return nil
-		default:
+	go func() {
+		defer listener.Close()
+
+		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				log.Printf("Failed to accept connection: %v", err)
 				continue
 			}
 
-			go p.handleConnection(conn)
+			select {
+			case <-p.terminate:
+				log.Println("Stopping proxy server")
+				return
+			default:
+				go p.handleConnection(conn)
+			}
 		}
-	}
+	}()
+
+	return nil
 }
 
 func (p *Proxy) SetCacheEnabled(enabled bool) {
-	if enabled && p.UseCache {
+	if enabled && !p.UseCache {
 		p.UseCache = true
 		p.cacheWg.Add(1)
-	} else {
+	} else if !enabled && p.UseCache {
 		p.UseCache = false
 		p.cacheWg.Done()
 	}

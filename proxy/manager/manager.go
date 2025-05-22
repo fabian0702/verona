@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/fabian0702/verona/proxy/proxy"
 )
@@ -18,23 +19,30 @@ func NewManager() *Manager {
 
 func (m *Manager) StartProxy(id string, localPort int, remoteHost string, remotePort int) error {
 	p := proxy.NewProxy(localPort, remoteHost, remotePort)
+
 	if err := p.Start(); err != nil {
-		return err
+		return fmt.Errorf("failed to start proxy: %w", err)
 	}
+
 	m.proxies[id] = p
+
 	return nil
 }
 
 func (m *Manager) StopProxy(id string) error {
 	if p, ok := m.proxies[id]; ok {
 		p.Stop()
+
 		delete(m.proxies, id)
+
 		return nil
 	}
+
 	return fmt.Errorf("proxy with id %s not found", id)
 }
 
 func (m *Manager) ChangeDestination(id string, remoteHost string, remotePort int) error {
+
 	if p, ok := m.proxies[id]; ok {
 		p.ChangeDestination(remoteHost, remotePort)
 		return nil
@@ -43,22 +51,23 @@ func (m *Manager) ChangeDestination(id string, remoteHost string, remotePort int
 }
 
 func (m *Manager) StopAll() {
-	fmt.Printf("Stopping all proxies\n")
+	log.Printf("Stopping all proxies\n")
 	for id, p := range m.proxies {
 		p.Stop()
-		fmt.Printf("Stopping proxy %s\n", id)
+		log.Printf("Stopping proxy %s\n", id)
 		delete(m.proxies, id)
 	}
 }
 
 func (m *Manager) UnPauseProxy(id string, paused bool) error {
+
 	if p, ok := m.proxies[id]; ok {
 		p.SetCacheEnabled(paused)
 		status := "resumed"
 		if paused {
 			status = "paused"
 		}
-		fmt.Printf("Proxy %s %s\n", id, status)
+		log.Printf("Proxy %s %s\n", id, status)
 		return nil
 	}
 	return fmt.Errorf("proxy with id %s not found", id)
