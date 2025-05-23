@@ -25,9 +25,9 @@ class Proxy:
         self.stop()
 
 class Client:
-    def __init__(self, socket_path:str='/run/verona.sock'):
+    def __init__(self, socket_path:str='/run/verona/verona.sock'):
         self.ws = websockets.sync.client.unix_connect(socket_path, uri='ws://localhost/ws')
-        self.proxies:dict[str, Client] = {}
+        self.proxies:dict[str, Proxy] = {}
 
     def new_proxy(self, local_port:int, remote_host:str, remote_port:int):
         proxy_id = self.start_proxy(local_port, remote_host, remote_port)
