@@ -50,6 +50,11 @@ type StopProxyCommand struct {
 	ProxyID string `json:"proxy_id"`
 }
 
+type Response struct {
+	IsError bool   `json:"is_error"`
+	Msg     string `json:"msg"`
+}
+
 func (ws *Websocket) wsHandler(w http.ResponseWriter, r *http.Request) {
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -66,19 +71,34 @@ func (ws *Websocket) wsHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Println("Error reading message:", err)
 			break
 		}
-		// log.Printf("Received: %s\n", message)
 
-		go ws.handleCommand(message)
-		// Send a response back to the client
-		err = conn.WriteMessage(websocket.TextMessage, []byte("{\"status\": \"ok\"}"))
+		err = ws.handleCommand(message)
+
 		if err != nil {
-			fmt.Println("Error writing message:", err)
-			break
+			ws.sendResponse(conn, true, fmt.Sprint(err))
+		} else {
+			ws.sendResponse(conn, false, "command succeded")
 		}
 	}
 }
 
-func (ws *Websocket) handleCommand(message []byte) {
+func (ws *Websocket) sendResponse(conn *websocket.Conn, isError bool, msg string) {
+	response := Response{IsError: isError, Msg: msg}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		fmt.Println("Failed to serialize response: ", response)
+		return
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, payload)
+	if err != nil {
+		fmt.Println("Error writing message:", err)
+		return
+	}
+}
+
+func (ws *Websocket) handleCommand(message []byte) error {
 	var cmd Command
 	json.Unmarshal(message, &cmd)
 
@@ -88,8 +108,7 @@ func (ws *Websocket) handleCommand(message []byte) {
 
 		err := json.Unmarshal([]byte(cmd.Data), &startProxy)
 		if err != nil {
-			fmt.Println("Error unmarshalling start_proxy command:", err)
-			return
+			return fmt.Errorf("Error unmarshalling start_proxy command: %v", err)
 		}
 
 		log.Printf("Starting proxy with ID: %s, Remote Host: %s, Remote Port: %d, Local Port: %d\n", startProxy.ProxyID, startProxy.RemoteHost, startProxy.RemotePort, startProxy.LocalPort)
@@ -97,7 +116,7 @@ func (ws *Websocket) handleCommand(message []byte) {
 		err = ws.Manager.StartProxy(startProxy.ProxyID, startProxy.LocalPort, startProxy.RemoteHost, startProxy.RemotePort)
 		if err != nil {
 			fmt.Println("Error executing start_proxy command:", err)
-			return
+			return fmt.Errorf("Error executing start_proxy command: %v", err)
 		}
 
 	case "stop_proxy":
@@ -105,16 +124,14 @@ func (ws *Websocket) handleCommand(message []byte) {
 
 		err := json.Unmarshal([]byte(cmd.Data), &stopProxy)
 		if err != nil {
-			fmt.Println("Error unmarshalling stop_proxy command:", err)
-			return
+			return fmt.Errorf("Error unmarshalling stop_proxy command: %v", err)
 		}
 
 		log.Printf("Stopping proxy with ID: %s\n", stopProxy.ProxyID)
 
 		err = ws.Manager.StopProxy(stopProxy.ProxyID)
 		if err != nil {
-			fmt.Println("Error executing stop_proxy command:", err)
-			return
+			return fmt.Errorf("Error executing stop_proxy command: %v", err)
 		}
 
 	case "change_destination":
@@ -122,16 +139,14 @@ func (ws *Websocket) handleCommand(message []byte) {
 
 		err := json.Unmarshal([]byte(cmd.Data), &changeDestination)
 		if err != nil {
-			fmt.Println("Error unmarshalling change_destination command:", err)
-			return
+			return fmt.Errorf("Error unmarshalling change_destination command: %v", err)
 		}
 
 		log.Printf("Changing destination for proxy with ID: %s, Remote Host: %s, Remote Port: %d\n", changeDestination.ProxyID, changeDestination.RemoteHost, changeDestination.RemotePort)
 
 		err = ws.Manager.ChangeDestination(changeDestination.ProxyID, changeDestination.RemoteHost, changeDestination.RemotePort)
 		if err != nil {
-			fmt.Println("Error executing change_destination command:", err)
-			return
+			return fmt.Errorf("Error executing change_destination command: %v", err)
 		}
 
 	case "unpause_proxy":
@@ -139,21 +154,21 @@ func (ws *Websocket) handleCommand(message []byte) {
 
 		err := json.Unmarshal([]byte(cmd.Data), &unpauseCommand)
 		if err != nil {
-			fmt.Println("Error unmarshalling unpause command:", err)
-			return
+			return fmt.Errorf("Error unmarshalling unpause command: %v", err)
 		}
 
 		log.Printf("Unpausing proxy with ID: %s, Pause: %t\n", unpauseCommand.ProxyID, unpauseCommand.Pause)
 
 		err = ws.Manager.UnPauseProxy(unpauseCommand.ProxyID, unpauseCommand.Pause)
 		if err != nil {
-			fmt.Println("Error executing unpause_proxy command:", err)
-			return
+			return fmt.Errorf("Error executing unpause_proxy command: %v", err)
 		}
 
 	default:
-		fmt.Println("Unknown command type:", cmd.CommandType)
+		return fmt.Errorf("Unknown command type: %s", cmd.CommandType)
 	}
+
+	return nil
 }
 
 func (ws *Websocket) Start() {

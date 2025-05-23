@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	socketPath := flag.String("socket", "/run/verona.sock", "Path to the management unix-socket")
+	socketPath := flag.String("socket", "/run/verona/verona.sock", "Path to the management unix-socket")
 	flag.Parse()
 
 	ws := websocket.NewWebsocket(*socketPath, manager.NewManager())
