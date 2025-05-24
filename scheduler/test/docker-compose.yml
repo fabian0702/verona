@@ -1,3 +1,6 @@
 services:
   test:
     image: nginxdemos/hello
+    labels:
+      - host_port=8080
+      - container_port=80
