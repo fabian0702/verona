@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"sync"
+	"syscall"
+	"context"
 )
 
 type Proxy struct {
@@ -14,6 +16,7 @@ type Proxy struct {
 	UseCache  bool
 	cacheWg   sync.WaitGroup
 	terminate chan bool
+	listener net.Listener
 }
 
 func NewProxy(localPort int, remoteHost string, remotePort int) *Proxy {
@@ -31,23 +34,39 @@ func (p *Proxy) ChangeDestination(remoteHost string, remotePort int) {
 }
 func (p *Proxy) Stop() {
 	p.terminate <- true
+	p.listener.Close()
 	log.Println("Proxy stopped")
 }
 
 // Start starts the proxy server
 func (p *Proxy) Start() error {
-	listener, err := net.Listen("tcp", p.local)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var opErr error
+			err := c.Control(func(fd uintptr) {
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+			if err != nil {
+				return err
+			}
+			return opErr
+		},
+	}
+	
+	listener, err := lc.Listen(context.Background(), "tcp", p.local)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
 
+	p.listener = listener
+
 	log.Printf("Proxy listening on %s, forwarding to %s", p.local, p.remote)
 
 	go func() {
-		defer listener.Close()
+		defer p.listener.Close()
 
 		for {
-			conn, err := listener.Accept()
+			conn, err := p.listener.Accept()
 			if err != nil {
 				log.Printf("Failed to accept connection: %v", err)
 				continue
