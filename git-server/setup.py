@@ -4,7 +4,7 @@ import subprocess
 
 services_dir = "./services"
 git_store = "./store"
-
+report_server = 'http://localhost:8000/git_hook/'
 
 for service in os.listdir(services_dir):
     r_path = join(services_dir, service)
@@ -13,13 +13,18 @@ for service in os.listdir(services_dir):
         continue
 
     # Init bare git repo
-    bare_repo = join(git_store, "{service}.git")
+    bare_repo = join(git_store, f"{service}.git")
     subprocess.run(["git", "init", "--bare", f"--template={r_path}", bare_repo])
 
     # Add hooking
     hook_dir = join(bare_repo, "hooks") 
     os.makedirs(hook_dir)
-    with open(join(hook_dir, "post-receive"), "w+") as file:
-        file.write("#!/bin/sh\necho 1")
+    hook_file = join(hook_dir, "post-receive")
+    with open(hook_file, "w+") as file:
+        file.write(f"#!/bin/sh\ncurl {report_server}{service}\n")
+    
+    os.chmod(hook_file, 0o775)
+
+    
     
 
