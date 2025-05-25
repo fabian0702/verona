@@ -1,0 +1,11 @@
+services:
+  scheduler:
+    build: .
+    environment:
+      - PYTHONPATH=.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/verona/verona.sock:/run/verona/verona.sock
+      - ./test:/app/test
+
+    network_mode: "host"
