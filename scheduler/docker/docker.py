@@ -1,40 +1,14 @@
+from typing import Optional
+
 from python_on_whales import DockerClient
 from python_on_whales.exceptions import DockerException
 from python_on_whales.components.container.cli_wrapper import Container
 
 from scheduler.websocket.proxy_client import ProxyClient, Proxy
 from scheduler.git.git import GitClient
+from scheduler.docker.file import File
+from scheduler.docker.models import PortConfigList
 
-import os
-import yaml
-import json
-
-from typing import Optional
-from pydantic import BaseModel, RootModel
-
-class PortConfig(BaseModel):
-    published: Optional[int | str] = None
-    target: int | str
-    protocol: str
-
-    def proxy_config(self) -> tuple[int, int]:
-        """
-        Returns the port configuration for the proxy.
-        :return: A tuple containing the published and target ports.
-        """
-        return int(self.published or self.target), int(self.target)
-    
-class PortConfigList(RootModel):
-    root: list[PortConfig]
-
-    def proxy_config(self) -> list[tuple[int, int]]:
-        """
-        Returns the port configurations for the proxy.
-        :return: A list of tuples containing the published and target ports.
-        """
-        return [port.proxy_config() for port in self.root]
-
-COMPOSE_FILE_NAMES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
 
 class DockerService:
     def __init__(self, git_client:GitClient, websocket_client:ProxyClient):
@@ -45,8 +19,9 @@ class DockerService:
 
         self.git_client = git_client
 
-        self.compose_file = self.search_compose_file()
+        self.compose_file = File.search_compose_file(git_client.repo_path)
         self.rewrite_compose_file()
+
         self.websocket_client = websocket_client
         self.proxies:dict[str, dict[int, Proxy]] = {}
 
@@ -55,53 +30,24 @@ class DockerService:
         self.setup_proxies()
 
 
-    def search_compose_file(self) -> str:
+    def start_containers(self) -> None:
         """
-        Search for the Docker Compose file in the current directory.
-        :return: The path to the Docker Compose file.
+        Start the containers of the service using Docker Compose.
         """
-        import os
-        for root, dirs, files in os.walk(self.git_client.repo_path):
-            for filename in COMPOSE_FILE_NAMES:
-                if filename in files:
-                    return os.path.join(root, filename)
-        raise FileNotFoundError("Docker Compose file not found.")
 
-
-    def rewrite_compose_file(self):
-        """
-        Rewrite the Docker Compose file with new content.
-        :param new_content: The new content to write to the Docker Compose file.
-        """
-        client = DockerClient(compose_files=[self.compose_file])
-
-        config = client.compose.config(return_json=True)
-
-        for name, service in config['services'].items():
-            if 'ports' in service:
-                ports = service['ports']
-                
-                service['labels'].update({'ports_config':json.dumps(ports)})
-
-                service['ports'] = []
-                
-        self.rewritten_compose_file = os.path.join(os.path.dirname(self.compose_file), 'docker-compose_rewritten.yaml')
-
-        with open(self.rewritten_compose_file, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+        try:
+            self.docker.compose.up(detach=True)
+            return  # Success, no need to start individually
+        except DockerException:
+            print('Failed to start containers, trying to start them individually')
+            
+        for container in self.docker.compose.ps(all=True):
+            if container.state.status != 'running':
+                try:
+                    self.docker.container.start(container.id)
+                except DockerException:
+                    print(f'Failed to start container {container.name}, skipping')
         
-        print(f"Rewritten {self.compose_file} with new content.")
-        self.docker = DockerClient(compose_files=[self.rewritten_compose_file])
-        return self.rewritten_compose_file
-
-    def start_containers(self):
-        """
-        Start a Docker Compose project using the specified compose file.
-        """
-
-        self.docker.compose.up(detach=True)
-
-        return self.docker.compose.ps()
 
     def find_container_ip(self, container:Container) -> Optional[str]:
         """
@@ -109,6 +55,7 @@ class DockerService:
         :param container: The container to find the IP address for.
         :return: The IP address of the container.
         """
+
         if not container.network_settings:
             print(f'Container {container.name} has no network settings')
             return None
@@ -123,12 +70,13 @@ class DockerService:
         return container.network_settings.ip_address
 
 
-    def find_ip_ports(self, container:Container) -> list[tuple[int, str, int]]:
+    def get_container_port_mappings(self, container:Container) -> list[tuple[int, str, int]]:
         """
         Find the IP and port of a container.
         :param container: The container to find the IP and port for.
         :return: A tuple containing the IP address and port number.
         """
+
         labels = container.config.labels or {}
         if not 'ports_config' in labels:
             return []
@@ -144,21 +92,22 @@ class DockerService:
         return [(host_port, container_ip, container_port) for host_port, container_port in port_config.proxy_config()]
 
 
-    def setup_proxies(self):
+    def setup_proxies(self) -> None:
         """
         Setup proxies for the service based on the Docker Compose file.
         """
 
         for container in self.docker.compose.ps(all=True):
             proxies:dict[int, Proxy] = {}
-            for host_port, container_ip, container_port in self.find_ip_ports(container):
+
+            for host_port, container_ip, container_port in self.get_container_port_mappings(container):
                 proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
                 proxies.update({host_port: proxy})
-            if proxies:
-                self.proxies.update({container.name:proxies})
+
+            self.proxies.update({container.name:proxies})
 
     
-    def update_proxy_destination(self, container:Container):
+    def update_proxy_destination(self, container: Container) -> None:
         """
         Update the proxy destination for the container.
         :param container: The container to update.
@@ -169,30 +118,60 @@ class DockerService:
             print(f'No proxy found for container {container.name}')
             return
         
-        ip_ports = self.find_ip_ports(container)
+        container_port_mappings = self.get_container_port_mappings(container)
+        current_host_ports = {host_port for host_port, _, _ in container_port_mappings}
+        
+        self._update_existing_proxies(container, proxies, container_port_mappings)
+        self._create_missing_proxies(container, proxies, container_port_mappings)
+        self._remove_stale_proxies(container, proxies, current_host_ports)
 
-        for host_port, container_ip, container_port in ip_ports:
-            proxy = proxies.get(host_port)
-            if not proxy:
-                print(f'No proxy found for host port {host_port} in container {container.name}')
-                new_proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
-                self.proxies[container.name].update({host_port: new_proxy})
-                continue
-            
-            print(f'Updating proxy destination for container {container.name} to {container_ip}:{container_port}')
-            proxy.change_destination(container_ip, int(container_port))
 
-        host_ports = [host_port for host_port, _, _ in ip_ports]
+    def _update_existing_proxies(self, container: Container, proxies: dict[int, Proxy], port_mappings: list[tuple[int, str, int]]) -> None:
+        """
+        Update destinations for existing proxies.
+        """
 
-        proxies_val = list(proxies.items())
+        for host_port, container_ip, container_port in port_mappings:
+            if host_port in proxies:
+                try:
+                    print(f'Updating proxy destination for container {container.name} to {container_ip}:{container_port}')
+                    proxies[host_port].change_destination(container_ip, container_port)
+                except Exception as e:
+                    print(f'Failed to update proxy for port {host_port}: {e}')
 
-        for old_host_port, proxy in proxies_val:
-            if old_host_port not in host_ports:
-                print(f'Removing proxy for host port {old_host_port} in container {container.name}')
-                proxy.stop()
-                del self.proxies[container.name][old_host_port]
 
-    def update_proxies(self):
+
+    def _create_missing_proxies(self, container: Container, proxies: dict[int, Proxy], port_mappings: list[tuple[int, str, int]]) -> None:
+        """
+        Create new proxies for ports that don't have them.
+        """
+
+        for host_port, container_ip, container_port in port_mappings:
+            if host_port not in proxies:
+                try:
+                    print(f'Creating new proxy for host port {host_port} in container {container.name}')
+                    proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
+                    if proxy:  # Verify proxy was created successfully
+                        proxies[host_port] = proxy
+                    else:
+                        print(f'Failed to create proxy for port {host_port}: proxy creation returned None')
+                except Exception as e:
+                    print(f'Failed to create proxy for port {host_port}: {e}')
+
+
+    def _remove_stale_proxies(self, container: Container, proxies: dict[int, Proxy], current_host_ports: set[int]) -> None:
+        """
+        Remove proxies for ports that no longer exist.
+        """
+
+        stale_ports = set(proxies.keys()) - current_host_ports
+        for stale_port in stale_ports:
+            print(f'Removing proxy for host port {stale_port} in container {container.name}')
+            proxies[stale_port].stop()
+            del proxies[stale_port]
+
+
+    def update_proxies(self) -> None:
         """
         Update the proxies for the service by checking each container.
         """
@@ -201,18 +180,19 @@ class DockerService:
             print(f'Updating proxy destination for container {container.name}')
             self.update_proxy_destination(container)
 
-    def build_containers(self):
+
+    def build_containers(self) -> None:
         """
         build/rebuild the containers of the service
         """
 
         try:
             self.docker.compose.build()
-        except DockerException:
-            print('failed to build containers')
+        except DockerException as e:
+            print(f'Failed to build containers: {e}')
 
 
-    def pause_proxies(self):
+    def pause_proxies(self) -> None:
         """
         pause all proxies for this service
         """
@@ -222,7 +202,7 @@ class DockerService:
                 proxy.pause()
 
 
-    def resume_proxies(self):
+    def resume_proxies(self) -> None:
         """
         resume all proxies for this service
         """
@@ -232,7 +212,16 @@ class DockerService:
                 proxy.resume()
 
 
-    def restart_service(self):
+    def rewrite_compose_file(self) -> None:
+        """
+        Rewrite the compose file to ensure it is up to date.
+        """
+
+        self.rewritten_compose_file = File.rewrite_compose_file(self.compose_file)
+        self.docker = DockerClient(compose_files=[self.rewritten_compose_file])
+
+
+    def restart_service(self) -> None:
         """
         restart the containers of the service
         """
@@ -252,26 +241,25 @@ class DockerService:
         self.resume_proxies()
 
 
-    def stop_containers(self):
+    def stop_containers(self) -> None:
         """
         Stop a Docker Compose project using the specified compose file.
         """
 
         try:
             self.docker.compose.down()
-            return True
-        except DockerException as e:
-            pass
+            return
+        except DockerException:
+            print('Failed to stop containers, trying to stop them individually')
 
         for container in self.docker.compose.ps():
             try:
                 self.docker.container.stop(container.id)
-            except DockerException as e:
-                pass
-        return False
+            except DockerException:
+                print(f'Failed to stop container {container.name}, skipping')
 
 
-    def teardown(self):
+    def teardown(self) -> None:
         """
         Teardown the service by stopping all containers and proxies.
         """
@@ -280,8 +268,14 @@ class DockerService:
 
         for container in self.proxies.values():
             for proxy in container.values():
-                print(f'Stopping proxy {proxy.proxy_id}')
-                proxy.stop()
+                try:
+                    print(f'Stopping proxy {proxy.proxy_id}')
+                    proxy.stop()
+                except Exception as e:
+                    print(f'Failed to stop proxy {proxy.proxy_id}: {e}')
+        
+        self.proxies.clear()
+        self.websocket_client.close()
     
     
 if __name__ == "__main__":
