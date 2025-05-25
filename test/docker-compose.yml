@@ -4,3 +4,12 @@ services:
     labels:
       - host_port=8080
       - container_port=80
+    ports:
+      - "8079:79/tcp"
+      - "8083:83"
+      - 8082
+      - 127.0.0.1:8081:81
+      - target: 80       # Container port
+        published: 8080  # Host port
+        protocol: tcp    # Protocol (tcp or udp)
+        mode: host       # host for host mode, or ingress for swarm mode
