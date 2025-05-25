@@ -1,0 +1,5 @@
+python-on-whales==0.76.1
+pydantic==2.11.5
+pydantic_core==2.33.2
+websockets==15.0.1
+PyYAML==6.0.2
