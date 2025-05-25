@@ -36,7 +36,7 @@ class PortConfigList(RootModel):
 
 COMPOSE_FILE_NAMES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
 
-class Service:
+class DockerService:
     def __init__(self, git_client:GitClient, websocket_client:ProxyClient):
         """
         Initialize the Service with a Docker Compose file.
@@ -287,7 +287,7 @@ class Service:
 if __name__ == "__main__":
     ws_client = ProxyClient()
     git_client = GitClient("test", "git://github.com/username/repo.git", clone=False)
-    svc = Service(git_client, ws_client)
+    svc = DockerService(git_client, ws_client)
     
     input()
 

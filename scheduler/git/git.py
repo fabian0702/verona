@@ -10,7 +10,7 @@ class GitClient:
         self.repo_path = os.path.join(os.getcwd(), service+'.git')
         self.repo_url = urljoin(repo_url, service)
         if clone:
-            self.clone(self.repo_url)
+            self.clone()
 
     def clone(self):
         """
