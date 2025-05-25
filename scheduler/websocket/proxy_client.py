@@ -2,8 +2,14 @@ import websockets.sync.client
 import json
 from secrets import token_hex
 
+from pydantic import BaseModel
+
+class ProxyResponse(BaseModel):
+    is_error: bool
+    msg: str
+
 class Proxy:
-    def __init__(self, client:'Client', proxy_id:str, remote_host:str, remote_port:int):
+    def __init__(self, client:'ProxyClient', proxy_id:str, remote_host:str, remote_port:int):
         """
         Proxy object to manage a single proxy connection.
         :param client: Client instance to communicate with the server.
@@ -20,6 +26,7 @@ class Proxy:
     
     def stop(self):
         if not self.stopped:
+            self.stopped = True
             self.client.stop_proxy(self.proxy_id)
 
     def pause(self):
@@ -46,10 +53,11 @@ class Proxy:
     def __del__(self):
         self.stop()
 
-class Client:
+class ProxyClient:
     def __init__(self, socket_path:str='/run/verona/verona.sock'):
         self.ws = websockets.sync.client.unix_connect(socket_path, uri='ws://localhost/ws')
         self.proxies:dict[str, Proxy] = {}
+        self.closed = False
 
     def new_proxy(self, local_port:int, remote_host:str, remote_port:int):
         proxy_id = self.start_proxy(local_port, remote_host, remote_port)
@@ -85,12 +93,35 @@ class Client:
         data = json.dumps({'proxy_id':proxy_id, 'pause': pause})
         self._send_command(type='unpause_proxy', data=data)
 
+    def _wait_for_response(self):
+        """
+        Wait for a response from the WebSocket server.
+        This is a placeholder for any future implementation that might require handling responses.
+        """
+        response = ProxyResponse.model_validate_json(self.ws.recv())
+        if response.is_error:
+            print(f"Error from server: {response.msg}")
+            raise Exception(f"Error from server: {response.msg}")
+
     def _send_command(self, type:str, data:str):
         payload = json.dumps({'type':type, 'data':data})
         self.ws.send(payload)
+        self._wait_for_response()
+
+    def close(self):
+        """
+        Close the WebSocket connection.
+        This method should be called when the client is no longer needed.
+        """
+        if not self.closed:
+            self.ws.close()
+            self.closed = True
+
+    def __del__(self):
+        self.close()
 
 if __name__ == '__main__':
-    client = Client()
+    client = ProxyClient()
     print('[*] starting proxy, press enter to continue')
     proxy = client.new_proxy(8080, 'localhost', 4444)
     input()
