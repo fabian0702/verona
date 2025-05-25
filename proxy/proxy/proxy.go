@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 	"context"
+	"golang.org/x/sys/unix"
 )
 
 type Proxy struct {
@@ -17,6 +18,7 @@ type Proxy struct {
 	cacheWg   sync.WaitGroup
 	terminate chan bool
 	listener net.Listener
+	cancel   context.CancelFunc
 }
 
 func NewProxy(localPort int, remoteHost string, remotePort int) *Proxy {
@@ -34,7 +36,9 @@ func (p *Proxy) ChangeDestination(remoteHost string, remotePort int) {
 }
 func (p *Proxy) Stop() {
 	p.terminate <- true
+	p.cancel()
 	p.listener.Close()
+
 	log.Println("Proxy stopped")
 }
 
@@ -45,6 +49,7 @@ func (p *Proxy) Start() error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
 				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 			})
 			if err != nil {
 				return err
@@ -53,7 +58,9 @@ func (p *Proxy) Start() error {
 		},
 	}
 	
-	listener, err := lc.Listen(context.Background(), "tcp", p.local)
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel  // Store the cancel function in the Proxy struct
+	listener, err := lc.Listen(ctx, "tcp", p.local)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
