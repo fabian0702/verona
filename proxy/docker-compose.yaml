@@ -1,0 +1,6 @@
+services:
+  proxy:
+    network_mode: host
+    volumes:
+      - /run/verona/:/run/verona/
+    build: .

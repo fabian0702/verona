@@ -30,13 +30,18 @@ func (m *Manager) StartProxy(id string, localPort int, remoteHost string, remote
 }
 
 func (m *Manager) StopProxy(id string) error {
+
 	if p, ok := m.proxies[id]; ok {
-		p.Stop()
+		go p.Stop()
 
 		delete(m.proxies, id)
 
+		log.Printf("Proxy %s stopped\n", id)
+
 		return nil
 	}
+
+	log.Printf("Proxy %s not found\n", id)
 
 	return fmt.Errorf("proxy with id %s not found", id)
 }

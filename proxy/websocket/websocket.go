@@ -131,6 +131,7 @@ func (ws *Websocket) handleCommand(message []byte) error {
 
 		err = ws.Manager.StopProxy(stopProxy.ProxyID)
 		if err != nil {
+			log.Printf("Error executing stop_proxy command: %v\n", err)
 			return fmt.Errorf("Error executing stop_proxy command: %v", err)
 		}
 
