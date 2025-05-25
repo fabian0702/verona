@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-<<<<<<< HEAD
 RUN apt-get update && \
     apt-get install -y ca-certificates curl && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -11,9 +10,6 @@ RUN apt-get update && \
     apt-get update
 
 RUN apt-get install -y docker-ce-cli
-=======
-COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
->>>>>>> 27835b1d8ad009b2396f529a7baba7336c904bc8
 
 COPY ./requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
@@ -22,10 +18,7 @@ COPY ./ /app/scheduler
 
 WORKDIR /app
 
-<<<<<<< HEAD
 ENV PYTHONUNBUFFERED=1
-=======
->>>>>>> 27835b1d8ad009b2396f529a7baba7336c904bc8
 ENV PYTHONPATH=.
 
 CMD ["python", "scheduler/main.py"]

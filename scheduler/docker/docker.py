@@ -36,11 +36,7 @@ class DockerService:
         """
 
         try:
-<<<<<<< HEAD
             self.docker.compose.up(detach=True, quiet=True, remove_orphans=True)
-=======
-            self.docker.compose.up(detach=True)
->>>>>>> 27835b1d8ad009b2396f529a7baba7336c904bc8
             return  # Success, no need to start individually
         except DockerException:
             print('Failed to start containers, trying to start them individually')
@@ -191,11 +187,7 @@ class DockerService:
         """
 
         try:
-<<<<<<< HEAD
             self.docker.compose.build(quiet=True)
-=======
-            self.docker.compose.build()
->>>>>>> 27835b1d8ad009b2396f529a7baba7336c904bc8
         except DockerException as e:
             print(f'Failed to build containers: {e}')
 
@@ -255,11 +247,7 @@ class DockerService:
         """
 
         try:
-<<<<<<< HEAD
             self.docker.compose.down(quiet=True, remove_orphans=True)
-=======
-            self.docker.compose.down()
->>>>>>> 27835b1d8ad009b2396f529a7baba7336c904bc8
             return
         except DockerException:
             print('Failed to stop containers, trying to stop them individually')
