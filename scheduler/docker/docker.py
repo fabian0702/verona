@@ -2,7 +2,7 @@ from python_on_whales import DockerClient
 from python_on_whales.exceptions import DockerException
 from python_on_whales.components.container.cli_wrapper import Container
 
-from client import Client, Proxy
+from scheduler.websocket.client import Client, Proxy
 
 class Service:
     def __init__(self, compose_file:str, websocket_client:Client):
