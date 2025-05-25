@@ -6,7 +6,7 @@ python setup.py
 
 echo "Starting git server..."
 # Start git server and python server
-uvicorn main:app &
+uvicorn main:app --host 0.0.0.0 &
 # Start git daemon with store as the base path
 git daemon --base-path=./store --export-all --reuseaddr --informative-errors --verbose --enable=receive-pack --detach &
 

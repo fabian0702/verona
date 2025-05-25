@@ -6,6 +6,10 @@ services_dir = "./services"
 git_store = "./store"
 report_server = 'http://localhost:8000/git_hook/'
 
+# Setting git username and email
+subprocess.run(["git", "config", "--global", "user.name", "Verona Git"])
+subprocess.run(["git", "config", "--global", "user.email", "verona@mntain.ch"])
+
 for service in os.listdir(services_dir):
     r_path = join(services_dir, service)
     if isfile(r_path):
@@ -14,11 +18,14 @@ for service in os.listdir(services_dir):
 
     # Init bare git repo
     bare_repo = join(git_store, f"{service}.git")
-    subprocess.run(["git", "init", "--bare", f"--template={r_path}", bare_repo])
+    subprocess.run(["git", "init", r_path])
+    subprocess.run(["git", "add", "."], cwd=r_path)
+    subprocess.run(["git", "commit", "-m", "Initial Commit (script)"], cwd=r_path)
+    subprocess.run(["git", "clone", "--bare", r_path, bare_repo])
 
     # Add hooking
     hook_dir = join(bare_repo, "hooks") 
-    os.makedirs(hook_dir)
+    os.makedirs(hook_dir, exist_ok=True)
     hook_file = join(hook_dir, "post-receive")
     with open(hook_file, "w+") as file:
         file.write(f"#!/bin/sh\ncurl {report_server}{service}\n")
