@@ -28,7 +28,7 @@ type Command struct {
 	Data        string `json:"data"`
 }
 
-type UnPauseCommand struct {
+type SetPauseStateCommand struct {
 	ProxyID string `json:"proxy_id"`
 	Pause   bool   `json:"pause"`
 }
@@ -150,19 +150,19 @@ func (ws *Websocket) handleCommand(message []byte) error {
 			return fmt.Errorf("Error executing change_destination command: %v", err)
 		}
 
-	case "unpause_proxy":
-		var unpauseCommand UnPauseCommand
+	case "set_proxy_pause_state":
+		var setPauseStateCommand SetPauseStateCommand
 
-		err := json.Unmarshal([]byte(cmd.Data), &unpauseCommand)
+		err := json.Unmarshal([]byte(cmd.Data), &setPauseStateCommand)
 		if err != nil {
 			return fmt.Errorf("Error unmarshalling unpause command: %v", err)
 		}
 
-		log.Printf("Unpausing proxy with ID: %s, Pause: %t\n", unpauseCommand.ProxyID, unpauseCommand.Pause)
+		log.Printf("Setting Pause State of proxy with ID: %s, Pause: %t\n", setPauseStateCommand.ProxyID, setPauseStateCommand.Pause)
 
-		err = ws.Manager.UnPauseProxy(unpauseCommand.ProxyID, unpauseCommand.Pause)
+		err = ws.Manager.UnPauseProxy(setPauseStateCommand.ProxyID, setPauseStateCommand.Pause)
 		if err != nil {
-			return fmt.Errorf("Error executing unpause_proxy command: %v", err)
+			return fmt.Errorf("Error executing set_proxy_pause_state command: %v", err)
 		}
 
 	default:
