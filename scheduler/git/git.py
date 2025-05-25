@@ -7,18 +7,18 @@ REPO_PATH = os.environ.get('REPO_PATH', './')
 
 class GitClient:
     def __init__(self, service: str, repo_url:str, clone: bool = True):
-        self.repo_path = os.path.join(os.getcwd(), service)
+        self.repo_path = os.path.join(os.getcwd(), service+'.git')
         self.repo_url = urljoin(repo_url, service)
         if clone:
             self.clone(self.repo_url)
 
-    def clone(self, repo_url: str):
+    def clone(self):
         """
         Clone a Git repository from the given URL to the specified path.
         """
         try:
-            check_output(['git', 'clone', repo_url, self.repo_path])
-            print(f"Successfully cloned {repo_url} to {self.repo_path}.")
+            check_output(['git', 'clone', self.repo_url, self.repo_path])
+            print(f"Successfully cloned {self.repo_url} to {self.repo_path}.")
         except CalledProcessError as e:
             print("git clone failed:", e)
 

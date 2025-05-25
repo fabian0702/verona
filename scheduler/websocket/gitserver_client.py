@@ -17,9 +17,9 @@ class GitWsMessage(BaseModel):
 class GitWsClient:
     def __init__(self, git_websocket:tuple[str, int]) -> None:
         self.ws = websockets.sync.client.connect(f"ws://{git_websocket[0]}:{git_websocket[1]}/subscribe_to_updates")
-        self.handle_rollback = lambda msg: None
-        self.handle_deploy = lambda : None
-        self.handle_register = lambda msg: None
+        self.handle_rollback = lambda svc, version: None
+        self.handle_deploy = lambda svc: None
+        self.handle_register = lambda svc: None
     
     def on_rollback(self, func:Callable) -> None:
         """
@@ -52,10 +52,10 @@ class GitWsClient:
         match msg.action:
             case "rollback":
                 print(f"Rollback requested for service: {msg.service}, version: {msg.version}")
-                self.handle_rollback(msg.version)
+                self.handle_rollback(msg.service, msg.version)
             case "deploy":
                 print(f"Deploy requested for service: {msg.service}")
-                self.handle_deploy()
+                self.handle_deploy(msg.service)
             case "register":
                 print(f"Registering service: {msg.service}")
                 self.handle_register(msg.service)
@@ -63,6 +63,13 @@ class GitWsClient:
                 print(f"Unknown action: {msg.action} for service: {msg.service}")
 
     def start(self) -> None:
+        """
+        Start the WebSocket client in a separate thread to listen for messages.
+        This method will block until the WebSocket connection is closed.
+        """
+
+        print("Starting Git WebSocket client...")
+
         while True:
             try:
                 msg = self.ws.recv()
