@@ -1,43 +1,60 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"syscall"
-	"context"
+
 	"golang.org/x/sys/unix"
 )
 
 type Proxy struct {
-	local     string
-	remote    string
-	UseCache  bool
-	cacheWg   sync.WaitGroup
-	terminate chan bool
-	listener net.Listener
-	cancel   context.CancelFunc
+	localAddress      string
+	remoteAddress     string
+	protocol          string
+	remoteMutex       sync.RWMutex
+	proxyTrafficMutex sync.RWMutex
+	isPaused          bool
+	pauseStateMutex   sync.Mutex
+	listener          net.Listener
+	stopExecution     context.CancelFunc
 }
 
-func NewProxy(localPort int, remoteHost string, remotePort int) *Proxy {
+func NewProxy(localPort int, remoteHost string, remotePort int, protocol string) *Proxy {
 	return &Proxy{
-		local:     fmt.Sprintf("0.0.0.0:%d", localPort),
-		remote:    fmt.Sprintf("%s:%d", remoteHost, remotePort),
-		cacheWg:   sync.WaitGroup{},
-		terminate: make(chan bool),
+		localAddress:      fmt.Sprintf("0.0.0.0:%d", localPort),
+		remoteAddress:     fmt.Sprintf("%s:%d", remoteHost, remotePort),
+		protocol:          protocol,
+		isPaused:          false,
+		pauseStateMutex:   sync.Mutex{},
+		remoteMutex:       sync.RWMutex{},
+		proxyTrafficMutex: sync.RWMutex{},
+		listener:          nil,
+		stopExecution:     nil,
 	}
 }
 
 func (p *Proxy) ChangeDestination(remoteHost string, remotePort int) {
-	p.remote = fmt.Sprintf("%s:%d", remoteHost, remotePort)
-	log.Printf("Changed destination to %s", p.remote)
+	p.remoteMutex.Lock()
+	defer p.remoteMutex.Unlock()
+
+	p.remoteAddress = fmt.Sprintf("%s:%d", remoteHost, remotePort)
+
+	log.Printf("Changed destination to %s", p.remoteAddress)
 }
+
 func (p *Proxy) Stop() {
-	p.terminate <- true
-	p.cancel()
-	p.listener.Close()
+	if p.stopExecution != nil {
+		p.stopExecution()
+	}
+
+	if p.listener != nil {
+		p.listener.Close()
+	}
 
 	log.Println("Proxy stopped")
 }
@@ -48,7 +65,7 @@ func (p *Proxy) Start() error {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var opErr error
 			err := c.Control(func(fd uintptr) {
-				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
 				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 			})
 			if err != nil {
@@ -57,78 +74,87 @@ func (p *Proxy) Start() error {
 			return opErr
 		},
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel  // Store the cancel function in the Proxy struct
-	listener, err := lc.Listen(ctx, "tcp", p.local)
+	p.stopExecution = cancel
+
+	// Use the context in Listen - this allows the listener to be cancelled
+	listener, err := lc.Listen(ctx, p.protocol, p.localAddress)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
 
 	p.listener = listener
-
-	log.Printf("Proxy listening on %s, forwarding to %s", p.local, p.remote)
+	log.Printf("Proxy listening on %s, forwarding to %s", p.localAddress, p.remoteAddress)
 
 	go func() {
 		defer p.listener.Close()
 
 		for {
+			// Accept will return an error when context is cancelled
 			conn, err := p.listener.Accept()
 			if err != nil {
-				log.Printf("Failed to accept connection: %v", err)
-				continue
+				if ctx.Err() != nil {
+					log.Println("Context cancelled, stopping proxy server")
+				} else {
+					log.Printf("Accept error: %v", err)
+				}
+				return
 			}
 
-			select {
-			case <-p.terminate:
-				log.Println("Stopping proxy server")
-				return
-			default:
-				go p.handleConnection(conn)
-			}
+			go p.handleConnection(conn)
 		}
 	}()
 
 	return nil
 }
 
-func (p *Proxy) SetCacheEnabled(enabled bool) {
-	if enabled && !p.UseCache {
-		p.UseCache = true
-		p.cacheWg.Add(1)
-	} else if !enabled && p.UseCache {
-		p.UseCache = false
-		p.cacheWg.Done()
+func (p *Proxy) SetTrafficPaused(paused bool) {
+	p.pauseStateMutex.Lock()
+	defer p.pauseStateMutex.Unlock()
+
+	if paused && !p.isPaused {
+		p.proxyTrafficMutex.Lock()
+		p.isPaused = true
+		log.Println("Traffic paused")
+	} else if !paused && p.isPaused {
+		p.proxyTrafficMutex.Unlock()
+		p.isPaused = false
+		log.Println("Traffic resumed")
 	}
 }
 
 func (p *Proxy) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	p.cacheWg.Wait()
+	// This will block if trafficMu is write-locked
+	p.proxyTrafficMutex.RLock()
+	defer p.proxyTrafficMutex.RUnlock()
 
-	// Connect to the remote server
-	remoteConn, err := net.Dial("tcp", p.remote)
+	p.remoteMutex.RLock()
+	remote := p.remoteAddress
+	p.remoteMutex.RUnlock()
+
+	remoteConn, err := net.Dial(p.protocol, remote)
 	if err != nil {
 		log.Printf("Failed to connect to remote server: %v", err)
 		return
 	}
 	defer remoteConn.Close()
 
-	// Create channels to signal when copying is done
-	done := make(chan bool, 2)
+	// Use context for proper cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Copy data in both directions
 	go func() {
+		defer cancel()
 		io.Copy(remoteConn, clientConn)
-		done <- true
 	}()
 
 	go func() {
+		defer cancel()
 		io.Copy(clientConn, remoteConn)
-		done <- true
 	}()
 
-	// Wait for data copying to complete in either direction
-	<-done
+	<-ctx.Done()
 }

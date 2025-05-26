@@ -38,6 +38,7 @@ type StartProxy struct {
 	RemoteHost string `json:"remote_host"`
 	RemotePort int    `json:"remote_port"`
 	LocalPort  int    `json:"local_port"`
+	Protocol   string `json:"protocol"`
 }
 
 type ChangeDestinationCommand struct {
@@ -113,7 +114,7 @@ func (ws *Websocket) handleCommand(message []byte) error {
 
 		log.Printf("Starting proxy with ID: %s, Remote Host: %s, Remote Port: %d, Local Port: %d\n", startProxy.ProxyID, startProxy.RemoteHost, startProxy.RemotePort, startProxy.LocalPort)
 
-		err = ws.Manager.StartProxy(startProxy.ProxyID, startProxy.LocalPort, startProxy.RemoteHost, startProxy.RemotePort)
+		err = ws.Manager.StartProxy(startProxy.ProxyID, startProxy.LocalPort, startProxy.RemoteHost, startProxy.RemotePort, startProxy.Protocol)
 		if err != nil {
 			fmt.Println("Error executing start_proxy command:", err)
 			return fmt.Errorf("Error executing start_proxy command: %v", err)
@@ -160,7 +161,7 @@ func (ws *Websocket) handleCommand(message []byte) error {
 
 		log.Printf("Setting Pause State of proxy with ID: %s, Pause: %t\n", setPauseStateCommand.ProxyID, setPauseStateCommand.Pause)
 
-		err = ws.Manager.UnPauseProxy(setPauseStateCommand.ProxyID, setPauseStateCommand.Pause)
+		err = ws.Manager.SetPauseState(setPauseStateCommand.ProxyID, setPauseStateCommand.Pause)
 		if err != nil {
 			return fmt.Errorf("Error executing set_proxy_pause_state command: %v", err)
 		}
