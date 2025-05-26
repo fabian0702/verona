@@ -7,7 +7,7 @@ from scheduler.websocket.models import ProxyResponse
 
 
 class Proxy:
-    def __init__(self, client:'ProxyClient', proxy_id:str, remote_host:str, remote_port:int, local_port:int):
+    def __init__(self, client:'ProxyClient', proxy_id:str, remote_host:str, remote_port:int, local_port:int, protocol:str='tcp'):
         """
         Proxy object to manage a single proxy connection.
         :param client: Client instance to communicate with the server.
@@ -22,6 +22,7 @@ class Proxy:
         self.remote_host = remote_host
         self.remote_port = remote_port
         self.local_port = local_port
+        self.protocol = protocol
 
 
     def stop(self):
@@ -100,7 +101,7 @@ class ProxyClient:
         self.closed = False
 
 
-    def new_proxy(self, local_port:int, remote_host:str, remote_port:int):
+    def new_proxy(self, local_port:int, remote_host:str, remote_port:int, protocol:str='tcp') -> Proxy:
         """
         Create a new proxy that binds to the specified local port and connects to the specified remote host and port.
         :param local_port: The local port to bind the proxy to.
@@ -111,13 +112,13 @@ class ProxyClient:
             ValueError: If the local port is already in use or if the remote host/port is invalid.
         """
 
-        proxy_id = self.start_proxy(local_port, remote_host, remote_port)
-        proxy = Proxy(self, proxy_id, remote_host, remote_port, local_port)
+        proxy_id = self.start_proxy(local_port, remote_host, remote_port, protocol)
+        proxy = Proxy(self, proxy_id, remote_host, remote_port, local_port, protocol)
         self.proxies[proxy_id] = proxy
         return proxy
     
     
-    def start_proxy(self, local_port:int, remote_host:str, remote_port:int) -> str:
+    def start_proxy(self, local_port:int, remote_host:str, remote_port:int, protocol:str) -> str:
         """
         low level implementation of new_proxy, directly talks to websocket, for easy development use `self.new_proxy()`
         :param local_port: The local port to bind the proxy to.
@@ -138,7 +139,7 @@ class ProxyClient:
             raise ValueError(f"Local port {local_port} is already in use by another proxy.")
 
         proxy_id = token_hex(6)
-        data = json.dumps({'proxy_id':proxy_id, 'local_port':local_port, 'remote_host':remote_host, 'remote_port':remote_port})
+        data = json.dumps({'proxy_id':proxy_id, 'local_port':local_port, 'remote_host':remote_host, 'remote_port':remote_port, 'protocol':protocol})
         self._send_command(type='start_proxy', data=data)
 
         return proxy_id

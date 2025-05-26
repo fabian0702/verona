@@ -23,7 +23,7 @@ class DockerService:
         self.rewrite_compose_file()
 
         self.websocket_client = websocket_client
-        self.proxies:dict[str, dict[int, Proxy]] = {}
+        self.proxies:dict[str, dict[str, Proxy]] = {}
 
         self.build_containers()
         self.start_containers()
@@ -70,7 +70,7 @@ class DockerService:
         return container.network_settings.ip_address
 
 
-    def get_container_port_mappings(self, container:Container) -> list[tuple[int, str, int]]:
+    def get_container_port_mappings(self, container:Container) -> list[tuple[int, str, int, str]]:
         """
         Find the IP and port of a container.
         :param container: The container to find the IP and port for.
@@ -89,7 +89,7 @@ class DockerService:
             print('Container IP absent for some reason skipping container')
             return []
 
-        return [(host_port, container_ip, container_port) for host_port, container_port in port_config.proxy_config()]
+        return [(host_port, container_ip, container_port, protocol) for host_port, container_port, protocol in port_config.proxy_config()]
 
 
     def setup_proxies(self) -> None:
@@ -98,13 +98,23 @@ class DockerService:
         """
 
         for container in self.docker.compose.ps(all=True):
-            proxies:dict[int, Proxy] = {}
+            proxies:dict[str, Proxy] = {}
 
-            for host_port, container_ip, container_port in self.get_container_port_mappings(container):
-                proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
-                proxies.update({host_port: proxy})
+            for host_port, container_ip, container_port, protocol in self.get_container_port_mappings(container):
+                proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port, protocol)
+                proxies.update({self._get_proxy_name(host_port, protocol): proxy})
 
             self.proxies.update({container.name:proxies})
+
+
+    def _get_proxy_name(self, host_port: int, protocol: str) -> str:
+        """
+        Generate a unique name for the proxy based on host port and protocol.
+        :param host_port: The host port of the proxy.
+        :param protocol: The protocol of the proxy (e.g., 'http', 'https').
+        :return: A unique name for the proxy.
+        """
+        return f'proxy-{host_port}-{protocol}'
 
     
     def update_proxy_destination(self, container: Container) -> None:
@@ -119,47 +129,46 @@ class DockerService:
             return
         
         container_port_mappings = self.get_container_port_mappings(container)
-        current_host_ports = {host_port for host_port, _, _ in container_port_mappings}
+        current_host_ports = {self._get_proxy_name(host_port, protocol) for host_port, _, _, protocol in container_port_mappings}
         
         self._update_existing_proxies(container, proxies, container_port_mappings)
         self._create_missing_proxies(container, proxies, container_port_mappings)
         self._remove_stale_proxies(container, proxies, current_host_ports)
 
 
-    def _update_existing_proxies(self, container: Container, proxies: dict[int, Proxy], port_mappings: list[tuple[int, str, int]]) -> None:
+    def _update_existing_proxies(self, container: Container, proxies: dict[str, Proxy], port_mappings: list[tuple[int, str, int, str]]) -> None:
         """
         Update destinations for existing proxies.
         """
 
-        for host_port, container_ip, container_port in port_mappings:
-            if host_port in proxies:
+        for host_port, container_ip, container_port, protocol in port_mappings:
+            if self._get_proxy_name(host_port, protocol) in proxies:
                 try:
                     print(f'Updating proxy destination for container {container.name} to {container_ip}:{container_port}')
-                    proxies[host_port].change_destination(container_ip, container_port)
+                    proxies[self._get_proxy_name(host_port, protocol)].change_destination(container_ip, container_port)
                 except Exception as e:
                     print(f'Failed to update proxy for port {host_port}: {e}')
 
 
-
-    def _create_missing_proxies(self, container: Container, proxies: dict[int, Proxy], port_mappings: list[tuple[int, str, int]]) -> None:
+    def _create_missing_proxies(self, container: Container, proxies: dict[str, Proxy], port_mappings: list[tuple[int, str, int, str]]) -> None:
         """
         Create new proxies for ports that don't have them.
         """
 
-        for host_port, container_ip, container_port in port_mappings:
-            if host_port not in proxies:
+        for host_port, container_ip, container_port, protocol in port_mappings:
+            if self._get_proxy_name(host_port, protocol) not in proxies:
                 try:
                     print(f'Creating new proxy for host port {host_port} in container {container.name}')
                     proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
                     if proxy:  # Verify proxy was created successfully
-                        proxies[host_port] = proxy
+                        proxies[self._get_proxy_name(host_port, protocol)] = proxy
                     else:
                         print(f'Failed to create proxy for port {host_port}: proxy creation returned None')
                 except Exception as e:
                     print(f'Failed to create proxy for port {host_port}: {e}')
 
 
-    def _remove_stale_proxies(self, container: Container, proxies: dict[int, Proxy], current_host_ports: set[int]) -> None:
+    def _remove_stale_proxies(self, container: Container, proxies: dict[str, Proxy], current_host_ports: set[str]) -> None:
         """
         Remove proxies for ports that no longer exist.
         """
@@ -226,19 +235,23 @@ class DockerService:
         restart the containers of the service
         """
 
-        self.build_containers()
+        try:
+            self.build_containers()
 
-        self.pause_proxies()
+            self.pause_proxies()
 
-        self.stop_containers()
+            self.stop_containers()
 
-        self.rewrite_compose_file()
+            self.rewrite_compose_file()
 
-        self.start_containers()
+            self.start_containers()
 
-        self.update_proxies()
+            self.update_proxies()
 
-        self.resume_proxies()
+        except Exception as e:
+            print(f'Failed to restart service: {e}')
+        finally:
+            self.resume_proxies()
 
 
     def stop_containers(self) -> None:
