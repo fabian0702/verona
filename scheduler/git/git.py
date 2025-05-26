@@ -16,8 +16,10 @@ class GitClient:
         :param clone: Whether to clone the repository if it does not exist.
         """
 
+        print(f"Initializing GitClient for service: {service} with repo URL: {repo_url}")
+
         self.repo_path = os.path.join(REPO_PATH, service)
-        self.repo_url = urljoin(repo_url, service+'.git')
+        self.repo_url = os.path.join(repo_url, service+'.git')
 
         if clone:
             self.clone()
@@ -67,6 +69,8 @@ class GitClient:
         os.makedirs(REPO_PATH, exist_ok=True)
         
         service_name = os.path.basename(self.repo_path)
+
+        print(self.repo_url)
         
         success, output = self._run_command(
             ['git', 'clone', self.repo_url, service_name], 

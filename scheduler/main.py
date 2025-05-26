@@ -7,7 +7,7 @@ from scheduler.docker.docker import DockerService
 from scheduler.websocket.proxy_client import ProxyClient
 
 # Configuration
-GITSERVER = 'git://github.com/username/'
+GITSERVER = 'git://localhost:9418/'
 
 # Setup logging
 logger = logging.getLogger(__name__)
