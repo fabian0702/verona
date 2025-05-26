@@ -64,6 +64,7 @@ class GitClient:
         """
         if os.path.exists(self.repo_path):
             print(f"Repository already exists at {self.repo_path}.")
+            self.pull()
             return True, None
         
         os.makedirs(REPO_PATH, exist_ok=True)
