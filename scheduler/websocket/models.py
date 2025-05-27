@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel
 
@@ -13,5 +13,10 @@ class GitWsMessage(BaseModel):
         return f"GitWsMessage(service={self.service}, message={self.message}, action={self.action}, version={self.version})"
 
 class ProxyResponse(BaseModel):
+    is_error: bool
+    msg: str
+
+class GitServerResponse(BaseModel):
+    type: Literal['response'] = 'response'
     is_error: bool
     msg: str

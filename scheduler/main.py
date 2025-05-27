@@ -64,23 +64,21 @@ class ServiceManager:
             self.services[name] = service
             logger.info(f"Service {name} registered successfully.")
             return True
+        
         except Exception as e:
-            logger.error(f"Failed to register service {name}: {e}")
-            return False
+            raise Exception(f"Failed to register service {name}: {e}")
 
     def deploy_service(self, name: str) -> bool:
         """Deploy the service with the given name."""
         if name not in self.services:
-            logger.error(f"Service {name} is not registered.")
-            return False
+            raise Exception(f"Service {name} is not registered.")
         
         return self.services[name].deploy()
 
     def rollback_service(self, name: str, version: str) -> bool:
         """Rollback the service to a specific version."""
         if name not in self.services:
-            logger.error(f"Service {name} is not registered.")
-            return False
+            raise Exception(f"Service {name} is not registered.")
         
         return self.services[name].rollback(version)
 

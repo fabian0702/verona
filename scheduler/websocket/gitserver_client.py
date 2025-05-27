@@ -1,4 +1,5 @@
 import time
+import json
 
 from typing import Optional, Callable
 
@@ -6,7 +7,7 @@ from websockets.sync import client as websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.protocol import State as WebSocketState
 
-from scheduler.websocket.models import GitWsMessage
+from scheduler.websocket.models import GitWsMessage, GitServerResponse
 
 
 class GitWsClient:
@@ -19,7 +20,7 @@ class GitWsClient:
         self._running = False 
 
         self.host, self.port = git_websocket
-        self.ws:websockets.ClientConnection = None  # Type hint for WebSocket connection
+        self.ws:Optional[websockets.ClientConnection] = None  # Type hint for WebSocket connection
         self._connect()
 
         self.handle_rollback = lambda svc, version: None
@@ -60,24 +61,34 @@ class GitWsClient:
             match msg.action:
                 case "rollback":
                     print(f"Rollback requested for service: {msg.service}, version: {msg.version}")
-                    self.handle_rollback(msg.service, msg.version)
+                    response = self.handle_rollback(msg.service, msg.version)
                 case "deploy":
                     print(f"Deploy requested for service: {msg.service}")
-                    self.handle_deploy(msg.service)
+                    response = self.handle_deploy(msg.service)
                 case "register":
                     print(f"Registering service: {msg.service}")
-                    self.handle_register(msg.service)
+                    response = self.handle_register(msg.service)
                 case _:
-                    print(f"Unknown action: {msg.action} for service: {msg.service}")
+                    response = f"Unknown action: {msg.action} for service: {msg.service}"
+                    print(response)
+
+            if response is None or response == True:
+                response = 'success'
+            elif response == False:
+                response = f'{msg.action} failed for serice {msg.service}'
+
+            self._send_response(response)
+
         except Exception as e:
             print(f"Error handling message {msg.action} for service {msg.service}: {e}")
+            self._send_response(e)
 
     def _is_connected(self) -> bool:
         """
         Check if WebSocket is connected and ready.
         """
 
-        return self.ws is not None and self.ws.state == WebSocketState.OPEN
+        return self.ws is not None # and self.ws.state == WebSocketState.OPEN
 
 
     def _connect(self) -> None:
@@ -105,6 +116,26 @@ class GitWsClient:
         raise ConnectionError(f"Could not connect to WebSocket server at ws://{self.host}:{self.port}/subscribe_to_updates after multiple attempts.")
 
 
+    def _send_response(self, response:str | Exception | dict | tuple | list | GitServerResponse, is_error:bool = False):
+        if isinstance(response, Exception):
+            is_error = True
+            response = response.args
+
+        if isinstance(response, (dict, tuple, list)):
+            response = json.dumps(response)
+
+        response = GitServerResponse(is_error=is_error, msg=str(response))
+
+        serialized_response = response.model_dump_json()
+
+        if not self.ws:
+            print('websocket not available')
+            return
+        
+        self.ws.send(serialized_response.encode())
+
+        print(f'sent response: {response}')
+
     def start(self) -> None:
         """
         Start the WebSocket client in a separate thread to listen for messages.
@@ -120,6 +151,9 @@ class GitWsClient:
                 if not self._is_connected():
                     print("WebSocket connection not open, attempting to connect...")
                     self._connect()
+
+                if not self.ws:
+                    raise ConnectionError('failed to connect')
                 
                 msg = self.ws.recv()
                 if msg:
@@ -130,8 +164,8 @@ class GitWsClient:
             except ConnectionError as e:
                 raise e     # Re-raise connection errors to be handled by the caller
             except Exception as e:
-                print(f"Error receiving message: {e}")
-                time.sleep(1)
+                self._send_response(e)
+                print(f'got exception  while trying to handle message: {e}')
 
 
     def stop(self) -> None:
@@ -140,6 +174,7 @@ class GitWsClient:
         """
 
         self._running = False
-        if self.ws and self.ws.state == WebSocketState.OPEN:
+        if self.ws: # and self.ws.state == WebSocketState.OPEN:
             self.ws.close()
+            self.ws = None
         print("Git WebSocket client stopped")
