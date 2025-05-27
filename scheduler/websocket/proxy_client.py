@@ -4,6 +4,7 @@ from secrets import token_hex
 import websockets.sync.client
 
 from scheduler.websocket.models import ProxyResponse
+from scheduler.log import logger
 
 
 class Proxy:
@@ -152,10 +153,10 @@ class ProxyClient:
             ValueError: If the proxy ID is invalid or the proxy is already stopped.
         """
 
-        print(f"Stopping proxy with ID: {proxy_id}")
+        logger.info(f"Stopping proxy with ID: {proxy_id}")
 
         if not proxy_id in self.proxies:
-            print(f"Invalid proxy ID: {proxy_id}")
+            logger.error(f"Invalid proxy ID: {proxy_id}")
             return
         
         data = json.dumps({'proxy_id':proxy_id})
@@ -238,7 +239,7 @@ class ProxyClient:
         
         response = ProxyResponse.model_validate_json(self.ws.recv())
         if response.is_error:
-            print(f"Error from server: {response.msg}")
+            logger.error(f"Error from server: {response.msg}")
             raise Exception(f"Error from server: {response.msg}")
         
         return response.msg
@@ -261,7 +262,7 @@ class ProxyClient:
             self.ws.send(payload)
             self._wait_for_response()
         except Exception as e:
-            print(f"Failed to send command {type}: {e}")
+            logger.error(f"Failed to send command {type}: {e}")
             raise
 
 
@@ -274,27 +275,27 @@ class ProxyClient:
         if self.closed:
             return
         
-        print("Closing WebSocket connection...")
+        logger.info("Closing WebSocket connection...")
         try:
             self.ws.close()
         except Exception as e:
-            print(f"Error closing WebSocket: {e}")
+            logger.error(f"Error closing WebSocket: {e}")
         finally:
             self.closed = True
 
 
 if __name__ == '__main__':
     client = ProxyClient()
-    print('[*] starting proxy, press enter to continue')
+    logger.info('[*] starting proxy, press enter to continue')
     proxy = client.new_proxy(8080, 'localhost', 4444)
     input()
-    print('[*] pausing proxy input, press enter to continue')
+    logger.info('[*] pausing proxy input, press enter to continue')
     proxy.pause()
     input()
-    print('[*] resuming proxy input, press enter to continue')
+    logger.info('[*] resuming proxy input, press enter to continue')
     proxy.resume()
     input()
-    print('[*] changing destination, press enter to finish')
+    logger.info('[*] changing destination, press enter to finish')
     proxy.change_destination('localhost', 5555)
     input()
-    print('[*] stopping proxy')
+    logger.info('[*] stopping proxy')

@@ -4,6 +4,8 @@ from urllib.parse import urljoin
 import os
 from typing import Optional
 
+from scheduler.log import logger
+
 
 REPO_PATH = os.environ.get('REPO_PATH', './')
 
@@ -16,7 +18,7 @@ class GitClient:
         :param clone: Whether to clone the repository if it does not exist.
         """
 
-        print(f"Initializing GitClient for service: {service} with repo URL: {repo_url}")
+        logger.info(f"Initializing GitClient for service: {service} with repo URL: {repo_url}")
 
         self.repo_path = os.path.join(REPO_PATH, service)
         self.repo_url = os.path.join(repo_url, service+'.git')
@@ -39,11 +41,11 @@ class GitClient:
             return True, output
         except CalledProcessError as e:
             error_msg = e.output.strip() if e.output else str(e)
-            print(f"Git command failed: {' '.join(command)}\n{error_msg}")
+            logger.error(f"Git command failed: {' '.join(command)}\n{error_msg}")
             return False, error_msg
         except Exception as e:
             error_msg = f"Unexpected error running git command: {str(e)}"
-            print(error_msg)
+            logger.error(error_msg)
             return False, error_msg
 
 
@@ -53,7 +55,7 @@ class GitClient:
         """
 
         if not os.path.exists(self.repo_path):
-            print(f"Repository not found at {self.repo_path}. Try cloning first.")
+            logger.warning(f"Repository not found at {self.repo_path}. Try cloning first.")
             return False
         return True
 
@@ -63,15 +65,13 @@ class GitClient:
         Clone the repository if it does not exist.
         """
         if os.path.exists(self.repo_path):
-            print(f"Repository already exists at {self.repo_path}.")
+            logger.warning(f"Repository already exists at {self.repo_path}.")
             self.pull()
             return True, None
         
         os.makedirs(REPO_PATH, exist_ok=True)
         
         service_name = os.path.basename(self.repo_path)
-
-        print(self.repo_url)
         
         success, output = self._run_command(
             ['git', 'clone', self.repo_url, service_name], 
@@ -79,9 +79,9 @@ class GitClient:
         )
         
         if success:
-            print(f"Successfully cloned repository from {self.repo_url} to {self.repo_path}")
+            logger.info(f"Successfully cloned repository from {self.repo_url} to {self.repo_path}")
         else:
-            print(f"Failed to clone repository from {self.repo_url}")
+            logger.error(f"Failed to clone repository from {self.repo_url}")
         
         return success, output
 
@@ -96,7 +96,7 @@ class GitClient:
         
         success, output = self._run_command(['git', 'pull'])
         if success:
-            print("Successfully pulled latest changes")
+            logger.info("Successfully pulled latest changes")
         return success, output
 
 
@@ -110,12 +110,12 @@ class GitClient:
         
         success, _ = self._run_command(['git', 'fetch', '--all'])
         if not success:
-            print("Failed to fetch all branches")
+            logger.error("Failed to fetch all branches")
             return False, None
 
         success, output = self._run_command(['git', 'reset', '--hard'])
         if success:
-            print("Successfully reset repository")
+            logger.info("Successfully reset repository")
         return success, output
 
 
@@ -129,7 +129,7 @@ class GitClient:
         
         success, output = self._run_command(['git', 'checkout', commit])
         if success:
-            print(f"Successfully checked out {commit}")
+            logger.info(f"Successfully checked out {commit}")
         return success, output
 
 

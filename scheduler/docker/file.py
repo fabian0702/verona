@@ -4,6 +4,8 @@ import json
 
 from python_on_whales import DockerClient
 
+from scheduler.log import logger
+
 
 COMPOSE_FILE_NAMES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
 
@@ -49,5 +51,5 @@ class File:
         with open(rewritten_compose_file, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
         
-        print(f"Rewritten {compose_file} with new content.")
+        logger.info(f"Rewritten {compose_file} with new content.")
         return rewritten_compose_file

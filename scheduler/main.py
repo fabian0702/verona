@@ -5,12 +5,10 @@ from scheduler.git.git import GitClient
 from scheduler.websocket.gitserver_client import GitWsClient
 from scheduler.docker.docker import DockerService
 from scheduler.websocket.proxy_client import ProxyClient
+from scheduler.log import logger
 
-# Configuration
+
 GITSERVER = 'git://localhost:9418/'
-
-# Setup logging
-logger = logging.getLogger(__name__)
 
 class Service:
     def __init__(self, name: str, proxy_client: ProxyClient):

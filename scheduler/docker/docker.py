@@ -8,6 +8,7 @@ from scheduler.websocket.proxy_client import ProxyClient, Proxy
 from scheduler.git.git import GitClient
 from scheduler.docker.file import File
 from scheduler.docker.models import PortConfigList
+from scheduler.log import logger
 
 
 class DockerService:
@@ -39,14 +40,14 @@ class DockerService:
             self.docker.compose.up(detach=True, quiet=True, remove_orphans=True)
             return  # Success, no need to start individually
         except DockerException:
-            print('Failed to start containers, trying to start them individually')
+            logger.error('Failed to start containers, trying to start them individually')
             
         for container in self.docker.compose.ps(all=True):
             if container.state.status != 'running':
                 try:
                     self.docker.container.start(container.id)
                 except DockerException:
-                    print(f'Failed to start container {container.name}, skipping')
+                    logger.error(f'Failed to start container {container.name}, skipping')
         
 
     def find_container_ip(self, container:Container) -> Optional[str]:
@@ -57,12 +58,12 @@ class DockerService:
         """
 
         if not container.network_settings:
-            print(f'Container {container.name} has no network settings')
+            logger.warning(f'Container {container.name} has no network settings')
             return None
         
         for name, network in (container.network_settings.networks or {}).items():
             if name == 'host':
-                print('Skipping host network container')
+                logger.warning(f'Skipping host network container {container.id}')
                 continue
             if network.ip_address:
                 return network.ip_address
@@ -86,7 +87,7 @@ class DockerService:
         container_ip = self.find_container_ip(container)
 
         if not container_ip:
-            print('Container IP absent for some reason skipping container')
+            logger.error('Container IP absent for some reason skipping container')
             return []
 
         return [(host_port, container_ip, container_port, protocol) for host_port, container_port, protocol in port_config.proxy_config()]
@@ -125,7 +126,7 @@ class DockerService:
 
         proxies = self.proxies.get(container.name)
         if not proxies:
-            print(f'No proxy found for container {container.name}')
+            logger.error(f'No proxy found for container {container.name}')
             return
         
         container_port_mappings = self.get_container_port_mappings(container)
@@ -144,10 +145,10 @@ class DockerService:
         for host_port, container_ip, container_port, protocol in port_mappings:
             if self._get_proxy_name(host_port, protocol) in proxies:
                 try:
-                    print(f'Updating proxy destination for container {container.name} to {container_ip}:{container_port}')
+                    logger.info(f'Updating proxy destination for container {container.name} to {container_ip}:{container_port}')
                     proxies[self._get_proxy_name(host_port, protocol)].change_destination(container_ip, container_port)
                 except Exception as e:
-                    print(f'Failed to update proxy for port {host_port}: {e}')
+                    logger.error(f'Failed to update proxy for port {host_port}: {e}')
 
 
     def _create_missing_proxies(self, container: Container, proxies: dict[str, Proxy], port_mappings: list[tuple[int, str, int, str]]) -> None:
@@ -158,14 +159,14 @@ class DockerService:
         for host_port, container_ip, container_port, protocol in port_mappings:
             if self._get_proxy_name(host_port, protocol) not in proxies:
                 try:
-                    print(f'Creating new proxy for host port {host_port} in container {container.name}')
+                    logger.info(f'Creating new proxy for host port {host_port} in container {container.name}')
                     proxy = self.websocket_client.new_proxy(host_port, container_ip, container_port)
                     if proxy:  # Verify proxy was created successfully
                         proxies[self._get_proxy_name(host_port, protocol)] = proxy
                     else:
-                        print(f'Failed to create proxy for port {host_port}: proxy creation returned None')
+                        logger.error(f'Failed to create proxy for port {host_port}: proxy creation returned None')
                 except Exception as e:
-                    print(f'Failed to create proxy for port {host_port}: {e}')
+                    logger.error(f'Failed to create proxy for port {host_port}: {e}')
 
 
     def _remove_stale_proxies(self, container: Container, proxies: dict[str, Proxy], current_host_ports: set[str]) -> None:
@@ -175,7 +176,7 @@ class DockerService:
 
         stale_ports = set(proxies.keys()) - current_host_ports
         for stale_port in stale_ports:
-            print(f'Removing proxy for host port {stale_port} in container {container.name}')
+            logger.info(f'Removing proxy for host port {stale_port} in container {container.name}')
             proxies[stale_port].stop()
             del proxies[stale_port]
 
@@ -186,7 +187,7 @@ class DockerService:
         """
 
         for container in self.docker.compose.ps(all=True):
-            print(f'Updating proxy destination for container {container.name}')
+            logger.info(f'Updating proxy destination for container {container.name}')
             self.update_proxy_destination(container)
 
 
@@ -198,7 +199,7 @@ class DockerService:
         try:
             self.docker.compose.build(quiet=True)
         except DockerException as e:
-            print(f'Failed to build containers: {e}')
+            logger.error(f'Failed to build containers: {e}')
 
 
     def pause_proxies(self) -> None:
@@ -249,7 +250,7 @@ class DockerService:
             self.update_proxies()
 
         except Exception as e:
-            print(f'Failed to restart service: {e}')
+            logger.error(f'Failed to restart service: {e}')
         finally:
             self.resume_proxies()
 
@@ -263,13 +264,13 @@ class DockerService:
             self.docker.compose.down(quiet=True, remove_orphans=True)
             return
         except DockerException:
-            print('Failed to stop containers, trying to stop them individually')
+            logger.error('Failed to stop containers, trying to stop them individually')
 
         for container in self.docker.compose.ps():
             try:
                 self.docker.container.stop(container.id)
             except DockerException:
-                print(f'Failed to stop container {container.name}, skipping')
+                logger.error(f'Failed to stop container {container.name}, skipping')
 
 
     def teardown(self) -> None:
@@ -282,10 +283,10 @@ class DockerService:
         for container in self.proxies.values():
             for proxy in container.values():
                 try:
-                    print(f'Stopping proxy {proxy.proxy_id}')
+                    logger.info(f'Stopping proxy {proxy.proxy_id}')
                     proxy.stop()
                 except Exception as e:
-                    print(f'Failed to stop proxy {proxy.proxy_id}: {e}')
+                    logger.error(f'Failed to stop proxy {proxy.proxy_id}: {e}')
         
         self.proxies.clear()
         self.websocket_client.close()

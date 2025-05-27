@@ -8,6 +8,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.protocol import State as WebSocketState
 
 from scheduler.websocket.models import GitWsMessage, GitServerResponse
+from scheduler.log import logger
 
 
 class GitWsClient:
@@ -60,17 +61,17 @@ class GitWsClient:
         try:
             match msg.action:
                 case "rollback":
-                    print(f"Rollback requested for service: {msg.service}, version: {msg.version}")
+                    logger.info(f"Rollback requested for service: {msg.service}, version: {msg.version}")
                     response = self.handle_rollback(msg.service, msg.version)
                 case "deploy":
-                    print(f"Deploy requested for service: {msg.service}")
+                    logger.info(f"Deploy requested for service: {msg.service}")
                     response = self.handle_deploy(msg.service)
                 case "register":
-                    print(f"Registering service: {msg.service}")
+                    logger.info(f"Registering service: {msg.service}")
                     response = self.handle_register(msg.service)
                 case _:
                     response = f"Unknown action: {msg.action} for service: {msg.service}"
-                    print(response)
+                    logger.error(response)
 
             if response is None or response == True:
                 response = 'success'
@@ -80,7 +81,7 @@ class GitWsClient:
             self._send_response(response)
 
         except Exception as e:
-            print(f"Error handling message {msg.action} for service {msg.service}: {e}")
+            logger.error(f"Error handling message {msg.action} for service {msg.service}: {e}")
             self._send_response(e)
 
     def _is_connected(self) -> bool:
@@ -97,20 +98,20 @@ class GitWsClient:
         """
 
         if self._is_connected():
-            print("WebSocket connection already open.")
+            logger.info("WebSocket connection already open.")
             return
-        print(f"Connecting to WebSocket server at ws://{self.host}:{self.port}/subscribe_to_updates")
+        logger.info(f"Connecting to WebSocket server at ws://{self.host}:{self.port}/subscribe_to_updates")
 
         for _ in range(5):  # Try 5 times to ensure connection
             try:
                 self.ws = websockets.connect(f"ws://{self.host}:{self.port}/subscribe_to_updates")
-                print("Connected to WebSocket server")
+                logger.info("Connected to WebSocket server")
                 return
             except ConnectionClosed:
-                print("WebSocket connection closed, retrying...")
+                logger.error("WebSocket connection closed, retrying...")
                 time.sleep(1)
             except Exception as e:
-                print(f"Failed to connect: {e}")
+                logger.error(f"Failed to connect: {e}")
                 time.sleep(5)
         
         raise ConnectionError(f"Could not connect to WebSocket server at ws://{self.host}:{self.port}/subscribe_to_updates after multiple attempts.")
@@ -129,12 +130,12 @@ class GitWsClient:
         serialized_response = response.model_dump_json()
 
         if not self.ws:
-            print('websocket not available')
+            logger.error('websocket not available')
             return
         
         self.ws.send(serialized_response.encode())
 
-        print(f'sent response: {response}')
+        logger.info(f'sent response: {response}')
 
     def start(self) -> None:
         """
@@ -142,14 +143,14 @@ class GitWsClient:
         This method will block until the WebSocket connection is closed.
         """
 
-        print("Starting Git WebSocket client...")
+        logger.info("Starting Git WebSocket client...")
 
         self._running = True
 
         while self._running:
             try:
                 if not self._is_connected():
-                    print("WebSocket connection not open, attempting to connect...")
+                    logger.info("WebSocket connection not open, attempting to connect...")
                     self._connect()
 
                 if not self.ws:
@@ -159,13 +160,13 @@ class GitWsClient:
                 if msg:
                     self.handle_msg(GitWsMessage.model_validate_json(msg))
             except ConnectionClosed:
-                print("WebSocket connection closed. Attempting to reconnect...")
+                logger.warning("WebSocket connection closed. Attempting to reconnect...")
                 self._connect()
             except ConnectionError as e:
                 raise e     # Re-raise connection errors to be handled by the caller
             except Exception as e:
                 self._send_response(e)
-                print(f'got exception  while trying to handle message: {e}')
+                logger.error(f'got exception  while trying to handle message: {e}')
 
 
     def stop(self) -> None:
@@ -177,4 +178,4 @@ class GitWsClient:
         if self.ws: # and self.ws.state == WebSocketState.OPEN:
             self.ws.close()
             self.ws = None
-        print("Git WebSocket client stopped")
+        logger.info("Git WebSocket client stopped")
