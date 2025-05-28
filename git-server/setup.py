@@ -4,6 +4,7 @@ import subprocess
 
 services_dir = "./services"
 git_store = "./store"
+service_file = join(services_dir, "service.txt")
 report_server = 'http://localhost:8000/git_hook/'
 
 # Setting git username and email
@@ -31,6 +32,10 @@ for service in os.listdir(services_dir):
         file.write(f"#!/bin/sh\ncurl {report_server}{service}\n")
     
     os.chmod(hook_file, 0o775)
+
+    # Registering the service in the file
+    with open(service_file, "a+") as file:
+        file.write(f"{service}\n")
 
     
     

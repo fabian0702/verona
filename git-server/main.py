@@ -1,9 +1,23 @@
 from fastapi import FastAPI, WebSocket
+import os
 
 app = FastAPI()
 
 
 pool: list[WebSocket] = []
+service_dir = "./services"
+service_file = os.path.join(service_dir, "service.txt")
+
+
+def get_services():
+    """
+    Function to get the list of services from the services directory.
+    Each service is expected to have a directory with its name.
+    """
+    with open(service_file, "r") as file:
+        services = [line.strip() for line in file if line.strip()]
+    return services
+
 
 @app.websocket("/subscribe_to_updates")
 async def websocket_endpoint(websocket: WebSocket):
@@ -13,6 +27,8 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     pool.append(websocket)
+
+    await websocket.send_json({"message": "Connected to WebSocket", "services": get_services()})
     
     try:
         while True:

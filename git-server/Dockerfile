@@ -18,4 +18,4 @@ RUN pip install -r requirements.txt
 EXPOSE 9418
 
 # Start script
-RUN chmod +x entrypoint.sh
+RUN chmod +x /app/entrypoint.sh

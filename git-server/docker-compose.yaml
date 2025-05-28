@@ -11,4 +11,4 @@ services:
     volumes:
       - ./store:/app/store # Persist git repositories
       - ./services:/app/services # Persist services
-    entrypoint: ./entrypoint.sh
+    entrypoint: ["./entrypoint.sh"]
